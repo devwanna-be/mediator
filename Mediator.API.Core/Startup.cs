@@ -2,7 +2,11 @@ using System;
 using System.IO;
 using System.Reflection;
 using FluentValidation.AspNetCore;
+using Hangfire;
+using Hangfire.SqlServer;
 using Mediator.API.App.UseCase.Sample;
+using Mediator.API.App.UseCase.Scheduler;
+using Mediator.API.Core.Helper;
 using MediatR;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -36,6 +40,24 @@ namespace Mediator.API.Core
                 });
             });
 
+            //ADDED
+            services.AddHangfire(configuration => configuration
+                    .SetDataCompatibilityLevel(CompatibilityLevel.Version_170)
+                    .UseSimpleAssemblyNameTypeSerializer()
+                    .UseRecommendedSerializerSettings()
+                    .UseSqlServerStorage("data source=dmdbtest.database.windows.net; initial catalog=fmsdm; user id=adminseradb; password=Serasi123", new SqlServerStorageOptions
+                    {
+                        CommandBatchMaxTimeout = TimeSpan.FromMinutes(5),
+                        SlidingInvisibilityTimeout = TimeSpan.FromMinutes(5),
+                        QueuePollInterval = TimeSpan.Zero,
+                        UseRecommendedIsolationLevel = true,
+                        DisableGlobalLocks = true
+                    })
+                    .UseMediatR());
+
+            //ADDED
+            services.AddHangfireServer();
+
             services.AddMvc()
                 .SetCompatibilityVersion(CompatibilityVersion.Version_3_0)
                 .AddJsonOptions(c => { c.JsonSerializerOptions.WriteIndented = true; })
@@ -60,7 +82,7 @@ namespace Mediator.API.Core
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
-        public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
+        public void Configure(IApplicationBuilder app, IWebHostEnvironment env, IMediator mediator) //MODIFIED
         {
             if (env.IsDevelopment())
             {
@@ -68,6 +90,13 @@ namespace Mediator.API.Core
             }
 
             app.UseResponseBuffering();
+
+            //ADDED
+            app.UseHangfireDashboard("/hangfire/job", new DashboardOptions()
+            {
+                Authorization = new[] { new HangfireFilter() }
+            });
+
             app.UseSwagger();
             app.UseSwaggerUI(c =>
             {
@@ -86,7 +115,13 @@ namespace Mediator.API.Core
             app.UseEndpoints(endpoints =>
             {
                 endpoints.MapControllers();
+                endpoints.MapHangfireDashboard(); //ADDED
             });
+
+            //ADDED
+            mediator.Recurring("Sample Task 1", new SchedulerRequest(), "0 1 17 * * *"); // 00:01 EVERY DAY
+            mediator.Recurring("Sample Task 2", new SchedulerRequest(), "* */5 * * * *"); // EVERY 5 minutes
+            mediator.Recurring("Sample Task Continously", new SchedulerRequest(), "* * * * *"); // CONTINOUSLY
         }
     }
 }
